@@ -1,0 +1,192 @@
+```{r include=FALSE}
+library(readxl)
+library(reshape2)
+library(stringr)
+library(sf) ###for map
+library(ggplot2)
+library(ggthemes)
+library(RColorBrewer)
+```
+
+```{r include=FALSE}
+#Leyendo datos:
+segunda_vuelta = read.csv("votacion-distrito-resultados.csv")
+ubigeos = read.csv("votacion-distrito-resumen.csv")
+equivalencias = read_xlsx("Equivalencias.xlsx")
+```
+
+```{r include=FALSE}
+map_dist = segunda_vuelta[,c(1:3,5,6,7,8)]
+```
+
+```{r include=FALSE}
+map_dist=reshape(map_dist, direction="wide", idvar=c("departamento", "provincia","distrito"), timevar="AGRUPACION")
+```
+
+```{r include=FALSE}
+#Consiguiendo identificación por ubigeos:
+map_dist$id = paste0(map_dist$departamento,map_dist$provincia)
+map_dist$id = paste0(map_dist$id,map_dist$distrito)
+
+ubigeos$id = paste0(ubigeos$departamento,ubigeos$provincia)
+ubigeos$id = paste0(ubigeos$id,ubigeos$distrito)
+```
+
+```{r include=FALSE}
+ubigeos = ubigeos[,c(4,33)]
+```
+
+```{r include=FALSE}
+ubigeos$id=gsub(" ","",ubigeos$id)
+map_dist$id=gsub(" ","",map_dist$id)
+```
+
+```{r include=FALSE}
+map_dist = merge(map_dist,ubigeos, by = "id")
+map_dist = map_dist[,c(2:11)]
+```
+
+```{r include=FALSE}
+equivalencias = equivalencias[,c(1,2)]
+```
+
+```{r include=FALSE}
+#Falta un 0
+map_dist$CCODI_UBIGEO=str_pad(map_dist$CCODI_UBIGEO, 6, pad = "0")
+```
+
+```{r include=FALSE}
+map_dist = merge(map_dist,equivalencias, by.x = "CCODI_UBIGEO", by.y = "UBIGEO_RENIEC", all.x = T)
+```
+
+```{r include=FALSE}
+colnames(map_dist) = c("CCODI_UBIGEO","DEPA","PROV","DIS","VOTOS_PL","VALIDOS_PL","EMITIDOS_PL","VOTOS_FP","VALIDOS_FP","EMITIDOS_FP","UBIGEO_INEI")
+```
+
+##### Dónde gana cada uno:
+
+```{r include=FALSE}
+#1 -> gana Castillo
+#2 -> gana Keiko
+map_dist$ganador = factor(ifelse(map_dist$VALIDOS_PL>map_dist$VALIDOS_FP,1,
+                                ifelse(map_dist$VALIDOS_FP>map_dist$VALIDOS_PL,2,0)))
+
+map_dist$ganador = factor(map_dist$ganador, levels = c(1:2), labels = c("PL","FP"))
+```
+
+########## Descriptivos:
+
+Perú Libre, al 95% del conteo, ha ganado 1497 distritos; y Fuerza Popular ha ganado un total de 377. Esto equivale a 80% y 20%, respectivamente.
+
+```{r}
+table(map_dist$ganador)*100/1874
+```
+
+```{r include=FALSE}
+#distritos de PL
+pl = map_dist[map_dist$ganador == "PL",]
+fp = map_dist[map_dist$ganador == "FP",]
+```
+
+```{r fig.height = 4.5, echo=FALSE,warning=FALSE}
+ggplot(pl, aes(x=VALIDOS_PL, fill=VALIDOS_PL))  + theme(legend.position="bottom") +
+  geom_density(alpha=0.4, color="red", fill="red", linetype = "dashed") + ggtitle("Distritos ganados por Perú Libre") + xlab("Votos válidos") + ylab("Densidad") + geom_vline(aes(xintercept=mean(VALIDOS_PL)),
+            color="black", linetype="dashed", size=0.5)+
+
+ theme_fivethirtyeight()
+
+```
+```{r fig.height = 4.5, echo=FALSE,warning=FALSE}
+ggplot(fp, aes(x=VALIDOS_FP, fill=VALIDOS_FP))  + theme(legend.position="bottom") +
+  geom_density(alpha=0.4, color="orange", fill="orange", linetype = "dashed") + ggtitle("Distritos ganados por Fuerza Popular") + xlab("Votos válidos") + ylab("Densidad") + geom_vline(aes(xintercept=mean(VALIDOS_FP)),
+            color="black", linetype="dashed", size=0.5)+
+
+ theme_fivethirtyeight()
+
+```
+
+########## Mapas:
+
+
+
+```{r include=FALSE}
+mapDIS=sf::read_sf("distritos/DISTRITOS.shp")
+```
+
+```{r include=FALSE}
+mapDIS2=merge(mapDIS,map_dist,by.x='IDDIST',by.y='UBIGEO_INEI', all.x = T)
+```
+
+```{r echo=FALSE,message=FALSE,warning=FALSE,eval=TRUE,fig.show='hold',fig.width=8,fig.height=7}
+###Mapa votos válidos por Perú Libre:
+
+mapaleyendaL= ggplot(mapDIS2)+ geom_sf() + theme_light()
+
+mapaleyL= mapaleyendaL + geom_sf(data=mapDIS2,
+              aes(fill=VALIDOS_PL),color = NA)
+      
+mapa3= mapaleyL +
+coord_sf() + 
+scale_fill_gradient(low = "seashell",  high = "firebrick", breaks=seq(from=0, to=100, by=20)) + theme_void() + 
+  
+theme(axis.title = element_blank(), axis.text = element_blank(), legend.position = c(1.1,0.55)) + labs(fill=" ") + theme(legend.text = element_text(size = 13)) +
+  
+labs(title = "% de votos válidos por Perú Libre", subtitle = "Escala del 0 al 100",caption = "Fuente: ONPE 2021\nElaborado por: Alexander Benites (@asbenitesa)") +
+  
+theme(
+plot.title = element_text(color="black", size=15, face="bold"),
+plot.caption = element_text(color = "black", size=10))
+
+mapa3
+```
+
+```{r echo=FALSE,message=FALSE,warning=FALSE,eval=TRUE,fig.show='hold',fig.width=8,fig.height=7}
+###Mapa votos válidos por Fuerza Popular:
+
+mapaleyendaL= ggplot(mapDIS2)+ geom_sf() + theme_light()
+
+mapaleyL= mapaleyendaL + geom_sf(data=mapDIS2,
+              aes(fill=VALIDOS_FP),color = NA)
+      
+mapa4= mapaleyL +
+coord_sf() + 
+scale_fill_gradient(low = "seashell",  high = "sienna3", breaks=seq(from=0, to=100, by=20)) + theme_void() +
+  
+  
+theme(axis.title = element_blank(), axis.text = element_blank(), legend.position = c(1.1,0.55)) + labs(fill=" ") + theme(legend.text = element_text(size = 13)) +
+  
+labs(title = "% de los votos válidos por Fuerza Popular", subtitle = "Escala del 0 al 100",caption = "Fuente: ONPE 2021\nElaborado por: Alexander Benites (@asbenitesa)") +
+  
+theme(
+plot.title = element_text(color="black", size=15, face="bold"),
+plot.caption = element_text(color = "black", size=10))
+
+mapa4
+```
+
+```{r echo=FALSE,message=FALSE,warning=FALSE,eval=TRUE,fig.show='hold',fig.width=8,fig.height=7}
+###Mapa votos válidos por Fuerza Popular:
+
+mapaleyendaL= ggplot(mapDIS2)+ geom_sf() + theme_light()
+
+mapaleyL= mapaleyendaL + geom_sf(data=mapDIS2,
+              aes(fill=ganador),color = NA)
+      
+mapa4= mapaleyL +
+coord_sf() + 
+scale_fill_manual(values=c("firebrick1","darkorange")) + theme_void() +
+  
+  
+theme(axis.title = element_blank(), axis.text = element_blank(), legend.position = c(1.1,0.55)) + labs(fill=" ") + theme(legend.text = element_text(size = 13)) +
+  
+labs(title = "Distritos ganados por cada partido",caption = "Fuente: ONPE 2021\nElaborado por: Alexander Benites (@asbenitesa)") +
+  
+theme(
+plot.title = element_text(color="black", size=15, face="bold"),
+plot.caption = element_text(color = "black", size=10))
+
+mapa4
+```
+
+
+
